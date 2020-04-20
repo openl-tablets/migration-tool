@@ -88,7 +88,7 @@ public class App {
                             fileItemsOfTheVersion.add(copyOfFi);
                         }
                         FileData copiedFileData = copyInfoWithoutVersion(folderState);
-                        if (SOURCE_USES_FLAT_PROJECTS && !TARGET_USES_FLAT_PROJECTS) {
+                        if (!TARGET_USES_FLAT_PROJECTS) {
                             copiedFileData.addAdditionalData(new FileMappingData(getNewName(folderState.getName())));
                         }
                         FolderItem folderWithVersion = new FolderItem(copiedFileData, fileItemsOfTheVersion);
@@ -172,7 +172,7 @@ public class App {
                 try (ZipInputStream zipStream = new ZipInputStream(fileItem.getStream())) {
                     FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, getNewName(pathTo));
                     FileData folderToData = copyInfoWithoutVersion(fileItem.getData());
-                    if (SOURCE_USES_FLAT_PROJECTS && !TARGET_USES_FLAT_PROJECTS) {
+                    if (!TARGET_USES_FLAT_PROJECTS) {
                         FileMappingData f = new FileMappingData(folderToData.getName());
                         folderToData.addAdditionalData(f);
                     }

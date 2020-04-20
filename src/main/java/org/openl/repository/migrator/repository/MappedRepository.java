@@ -341,9 +341,9 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     public void saveFolders(List<FolderItem> folderItems) throws IOException {
-        if(!folderItems.isEmpty()){
+        if (!folderItems.isEmpty()) {
             for (FolderItem folderItem : folderItems) {
-                save(folderItem.getData(),folderItem.getFiles(), ChangesetType.FULL);
+                save(folderItem.getData(), folderItem.getFiles(), ChangesetType.FULL);
             }
         }
     }
