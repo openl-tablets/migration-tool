@@ -59,7 +59,7 @@ public class FileDataUtils {
     }
 
     public static SortedSet<FolderItem> initializeSetForFolderItems() {
-        return new TreeSet<>(Comparator.comparing((FolderItem o) -> o.getData().getVersion()).thenComparing(o -> o.getData().getModifiedAt()));
+        return new TreeSet<>(Comparator.comparing((FolderItem o) -> o.getData().getModifiedAt()).thenComparing(o -> o.getData().getVersion()));
     }
 
     public static void writeFile(ZipOutputStream zipOutputStream, FileItem fd, String pathTo) throws IOException {
