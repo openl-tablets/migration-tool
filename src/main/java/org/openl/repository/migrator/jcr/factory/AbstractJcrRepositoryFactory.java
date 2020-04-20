@@ -24,7 +24,7 @@ import javax.jcr.nodetype.NodeTypeManager;
 public abstract class AbstractJcrRepositoryFactory extends ZipJcrRepository implements RRepositoryFactory {
 
     private final Logger log = LoggerFactory.getLogger(AbstractJcrRepositoryFactory.class);
-    protected static final String DEFAULT_NODETYPE_FILE = "/org/openl/repository/migrator/openl_nodetypes.xml";
+    protected static final String DEFAULT_NODETYPE_FILE = "/openl_nodetypes.xml";
 
     protected Repository repository;
 
