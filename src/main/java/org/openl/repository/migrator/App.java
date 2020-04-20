@@ -84,12 +84,12 @@ public class App {
                         List<FileItem> fileItemsOfTheVersion = new ArrayList<>();
                         for (FileData fileData : projectFilesWithGivenVersion) {
                             FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), fileData.getVersion());
-                            FileItem copyOfFi = new FileItem(copyInfoWithoutVersion(fi.getData()), fi.getStream());
+                            FileItem copyOfFi = new FileItem(getCopiedFileData(fi.getData()), fi.getStream());
                             fileItemsOfTheVersion.add(copyOfFi);
                         }
-                        FileData copiedFileData = copyInfoWithoutVersion(folderState);
+                        FileData copiedFileData = getCopiedFileData(folderState);
                         if (!TARGET_USES_FLAT_PROJECTS) {
-                            copiedFileData.addAdditionalData(new FileMappingData(getNewName(folderState.getName())));
+                            copiedFileData.addAdditionalData(new FileMappingData(folderState.getName().substring(BASE_PATH_FROM.length())));
                         }
                         FolderItem folderWithVersion = new FolderItem(copiedFileData, fileItemsOfTheVersion);
                         if (projectWithAllFoldersHistory.containsKey(projectName)) {
@@ -116,7 +116,11 @@ public class App {
                 if (targetSupportsFolders) {
                     FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
                     for (Map.Entry<String, SortedSet<FolderItem>> stringTreeSetEntry : projectWithAllFoldersHistory.entrySet()) {
-                        targetFolderRepo.save(new ArrayList<>(stringTreeSetEntry.getValue()), ChangesetType.FULL);
+                        SortedSet<FolderItem> folderItems = stringTreeSetEntry.getValue();
+                        for (FolderItem folderItem : folderItems) {
+                            folderItem.getData().setVersion(null);
+                        }
+                        targetFolderRepo.save(new ArrayList<>(folderItems), ChangesetType.FULL);
                     }
 
                 } else {
@@ -129,7 +133,7 @@ public class App {
                                     writeFile(zipOutputStream, file, stringTreeSetEntry.getKey());
                                 }
                                 zipOutputStream.finish();
-                                FileData copy = getCopiedFileData(folderItem.getData());
+                                FileData copy = folderItem.getData();
                                 copy.setSize(out.size());
                                 target.save(copy, new ByteArrayInputStream(out.toByteArray()));
 
@@ -173,9 +177,10 @@ public class App {
                     FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, getNewName(pathTo));
                     FileData folderToData = copyInfoWithoutVersion(fileItem.getData());
                     if (!TARGET_USES_FLAT_PROJECTS) {
-                        FileMappingData f = new FileMappingData(folderToData.getName());
+                        FileMappingData f = new FileMappingData(folderToData.getName().substring(BASE_PATH_TO.length()));
                         folderToData.addAdditionalData(f);
                     }
+                    folderToData.setVersion(null);
                     targetFolderRepo.save(folderToData, filesInArchive, ChangesetType.FULL);
                 } catch (Exception e) {
                     logger.error("There was an error on saving the file " + fileItem.getData().getName(), e);
