@@ -9,7 +9,7 @@
 ### Prerequisites
 Download the jar and put the application.properties file in the same folder.
 Example:
-![Folder structure](https://github.com/openl-tablets/migration-tool/site/folder.png)
+![Folder structure](https://github.com/openl-tablets/migration-tool/blob/master/site/folder.PNG)
 
 #### Properties file
 Properties file must be name application.properties and has the following structure:
