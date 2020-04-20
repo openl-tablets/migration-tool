@@ -35,6 +35,12 @@ If you want to copy design repository from Jackrabbit, please setup the followin
 ```
 org.openl.repository.migrator.jackrabbit.
 ```
+and put the corresponsed class name: LocalJackrabbitRepositoryFactory, RmiJackrabbitRepositoryFactory or WebDavRepositoryFactory.
+So, e.g. for LocalJackrabbitRepositoryFactory the name will be:
+
+```
+org.openl.repository.migrator.jackrabbit.LocalJackrabbitRepositoryFactory
+```
 
 ## Running the migrator
 ### Run it as usual jar file
