@@ -46,7 +46,6 @@ public class FileDataUtils {
 
 
     public static String getNewName(String name) {
-        //TODO: fixme
         if (!name.contains(BASE_PATH_TO)) {
             return BASE_PATH_TO + name.substring(BASE_PATH_FROM.length());
         } else {

@@ -66,42 +66,7 @@ public class App {
 
         try {
             if (sourceSupportsFolders) {
-                FolderRepository folderRepo = SOURCE_USES_FLAT_PROJECTS ? (FolderRepository) source : createMappedRepository(source, SOURCE);
-                List<FileData> folders = folderRepo.listFolders(BASE_PATH_FROM);
-                for (FileData folder : folders) {
-                    // no need to copy deleted projects
-                    if (folder.isDeleted()) {
-                        continue;
-                    }
-                    List<FileData> foldersList;
-                    String projectName = folder.getName();
-                    projectName = modifyProjectName(projectName);
-                    //all versions of folder
-                    foldersList = folderRepo.listHistory(projectName);
-                    for (FileData folderState : foldersList) {
-                        //all files related to the folder and given version
-                        List<FileData> projectFilesWithGivenVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
-                        List<FileItem> fileItemsOfTheVersion = new ArrayList<>();
-                        for (FileData fileData : projectFilesWithGivenVersion) {
-                            FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), fileData.getVersion());
-                            FileItem copyOfFi = new FileItem(getCopiedFileData(fi.getData()), fi.getStream());
-                            fileItemsOfTheVersion.add(copyOfFi);
-                        }
-                        FileData copiedFileData = getCopiedFileData(folderState);
-                        if (!TARGET_USES_FLAT_PROJECTS) {
-                            copiedFileData.addAdditionalData(new FileMappingData(folderState.getName().substring(BASE_PATH_FROM.length())));
-                        }
-                        FolderItem folderWithVersion = new FolderItem(copiedFileData, fileItemsOfTheVersion);
-                        if (projectWithAllFoldersHistory.containsKey(projectName)) {
-                            SortedSet<FolderItem> folderItems = projectWithAllFoldersHistory.get(projectName);
-                            folderItems.add(folderWithVersion);
-                        } else {
-                            SortedSet<FolderItem> init = initializeSetForFolderItems();
-                            init.add(folderWithVersion);
-                            projectWithAllFoldersHistory.put(projectName, init);
-                        }
-                    }
-                }
+                collectFoldersWithFiles(source, projectWithAllFoldersHistory);
             } else {
                 collectFileItems(source, projectWithAllFileItems);
             }
@@ -114,47 +79,21 @@ public class App {
             if (sourceSupportsFolders) {
                 //when source and target support folders both we can easily put all the folders as is
                 if (targetSupportsFolders) {
-                    FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
-                    for (Map.Entry<String, SortedSet<FolderItem>> stringTreeSetEntry : projectWithAllFoldersHistory.entrySet()) {
-                        SortedSet<FolderItem> folderItems = stringTreeSetEntry.getValue();
-                        for (FolderItem folderItem : folderItems) {
-                            folderItem.getData().setVersion(null);
-                        }
-                        targetFolderRepo.save(new ArrayList<>(folderItems), ChangesetType.FULL);
-                    }
+                    saveFoldersToFolderRepository(target, projectWithAllFoldersHistory);
 
                 } else {
                     //for storing folders from git it's needed to archive all the versions of the path
-                    for (Map.Entry<String, SortedSet<FolderItem>> stringTreeSetEntry : projectWithAllFoldersHistory.entrySet()) {
-                        for (FolderItem folderItem : stringTreeSetEntry.getValue()) {
-                            ByteArrayOutputStream out = new ByteArrayOutputStream();
-                            try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
-                                for (FileItem file : folderItem.getFiles()) {
-                                    writeFile(zipOutputStream, file, stringTreeSetEntry.getKey());
-                                }
-                                zipOutputStream.finish();
-                                FileData copy = folderItem.getData();
-                                copy.setSize(out.size());
-                                target.save(copy, new ByteArrayInputStream(out.toByteArray()));
-
-                            } catch (Exception e) {
-                                logger.error("There was an error during saving the zip file " + folderItem.getData().getName(), e);
-                            }
-                        }
-                    }
+                    saveFoldersToStorage(target, projectWithAllFoldersHistory);
                 }
             } else {
                 //when source not supporting folders. We're taking from jdbc, aws, jcr
                 //if we're saving to git
                 if (targetSupportsFolders) {
                     FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
-                    storeDataToFileRepository(projectWithAllFileItems, targetFolderRepo);
+                    saveStorageToFileRepository(projectWithAllFileItems, targetFolderRepo);
                 } else {
                     //saving target git, jcr, aws
-                    for (Map.Entry<String, SortedSet<FileItem>> pathWithFiles : projectWithAllFileItems.entrySet()) {
-                        SortedSet<FileItem> fileItems = pathWithFiles.getValue();
-                        target.save(new ArrayList<>(fileItems));
-                    }
+                    saveStorageToStorage(target, projectWithAllFileItems);
                 }
 
             }
@@ -167,8 +106,90 @@ public class App {
 
     }
 
-    private static void storeDataToFileRepository(Map<String, SortedSet<FileItem>> projectWithAllFileItems,
-                                                  FolderRepository targetFolderRepo) {
+    private static void saveStorageToStorage(Repository target, Map<String, SortedSet<FileItem>> projectWithAllFileItems) throws IOException {
+        for (Map.Entry<String, SortedSet<FileItem>> pathWithFiles : projectWithAllFileItems.entrySet()) {
+            SortedSet<FileItem> fileItems = pathWithFiles.getValue();
+            target.save(new ArrayList<>(fileItems));
+        }
+    }
+
+    private static void saveFoldersToStorage(Repository target, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) {
+        for (Map.Entry<String, SortedSet<FolderItem>> projectNameWithFolders : projectWithAllFoldersHistory.entrySet()) {
+            for (FolderItem folderItem : projectNameWithFolders.getValue()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
+                    for (FileItem file : folderItem.getFiles()) {
+                        writeFile(zipOutputStream, file, projectNameWithFolders.getKey());
+                    }
+                    zipOutputStream.finish();
+                    FileData copy = folderItem.getData();
+                    copy.setSize(out.size());
+                    target.save(copy, new ByteArrayInputStream(out.toByteArray()));
+
+                } catch (Exception e) {
+                    logger.error("There was an error during saving the zip file " + folderItem.getData().getName(), e);
+                }
+            }
+        }
+    }
+
+    private static void saveFoldersToFolderRepository(Repository target, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) throws IOException {
+        FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
+        for (Map.Entry<String, SortedSet<FolderItem>> projectNameWithFolders : projectWithAllFoldersHistory.entrySet()) {
+            SortedSet<FolderItem> folderItems = projectNameWithFolders.getValue();
+            for (FolderItem folderItem : folderItems) {
+                folderItem.getData().setVersion(null);
+            }
+            targetFolderRepo.save(new ArrayList<>(folderItems), ChangesetType.FULL);
+        }
+    }
+
+    private static void collectFoldersWithFiles(Repository source, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) throws IOException {
+        FolderRepository folderRepo = SOURCE_USES_FLAT_PROJECTS ? (FolderRepository) source : createMappedRepository(source, SOURCE);
+        List<FileData> folders = folderRepo.listFolders(BASE_PATH_FROM);
+        for (FileData folder : folders) {
+            // no need to copy deleted projects
+            if (folder.isDeleted()) {
+                continue;
+            }
+            List<FileData> foldersList;
+            String projectName = folder.getName();
+            projectName = modifyProjectName(projectName);
+            //all versions of folder
+            foldersList = folderRepo.listHistory(projectName);
+            for (FileData folderState : foldersList) {
+                //all files related to the folder and given version
+                List<FileData> projectFilesWithGivenVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
+                List<FileItem> fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, projectFilesWithGivenVersion);
+                FileData copiedFolderData = getCopiedFileData(folderState);
+                if (!TARGET_USES_FLAT_PROJECTS) {
+                    copiedFolderData.addAdditionalData(new FileMappingData(folderState.getName().substring(BASE_PATH_FROM.length())));
+                }
+                FolderItem folderWithVersion = new FolderItem(copiedFolderData, fileItemsOfTheVersion);
+                if (projectWithAllFoldersHistory.containsKey(projectName)) {
+                    SortedSet<FolderItem> folderItems = projectWithAllFoldersHistory.get(projectName);
+                    folderItems.add(folderWithVersion);
+                } else {
+                    SortedSet<FolderItem> init = initializeSetForFolderItems();
+                    init.add(folderWithVersion);
+                    projectWithAllFoldersHistory.put(projectName, init);
+                }
+            }
+        }
+    }
+
+    private static List<FileItem> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion) throws IOException {
+        List<FileItem> fileItemsOfTheVersion = new ArrayList<>();
+        for (FileData fileData : projectFilesWithGivenVersion) {
+            FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), fileData.getVersion());
+            FileItem copyOfFi = new FileItem(getCopiedFileData(fi.getData()), fi.getStream());
+            fileItemsOfTheVersion.add(copyOfFi);
+        }
+        return fileItemsOfTheVersion;
+    }
+
+    private static void saveStorageToFileRepository(Map<String, SortedSet<FileItem>> projectWithAllFileItems,
+                                                    FolderRepository targetFolderRepo) {
         for (Map.Entry<String, SortedSet<FileItem>> pathWithFiles : projectWithAllFileItems.entrySet()) {
             String pathTo = pathWithFiles.getKey();
             SortedSet<FileItem> fileItems = pathWithFiles.getValue();
