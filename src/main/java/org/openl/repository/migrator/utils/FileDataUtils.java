@@ -2,15 +2,10 @@ package org.openl.repository.migrator.utils;
 
 import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
-import org.openl.rules.repository.api.FileItem;
-import org.openl.rules.repository.api.FolderItem;
 import org.openl.util.IOUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Comparator;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -46,14 +41,6 @@ public class FileDataUtils {
         } else {
             return name;
         }
-    }
-
-    public static SortedSet<FileItem> initializeSetForFileItems() {
-        return new TreeSet<>(Comparator.comparing(o -> o.getData().getVersion()));
-    }
-
-    public static SortedSet<FolderItem> initializeSetForFolderItems() {
-        return new TreeSet<>(Comparator.comparing((FolderItem o) -> o.getData().getModifiedAt()).thenComparing(o -> o.getData().getVersion()));
     }
 
     public static void writeFile(ZipOutputStream zipOutputStream, FileChange fd, String pathTo) throws IOException {

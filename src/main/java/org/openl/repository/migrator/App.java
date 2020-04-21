@@ -9,7 +9,6 @@ import org.openl.rules.repository.api.ChangesetType;
 import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
 import org.openl.rules.repository.api.FileItem;
-import org.openl.rules.repository.api.FolderItem;
 import org.openl.rules.repository.api.FolderRepository;
 import org.openl.rules.repository.api.Repository;
 import org.openl.rules.repository.exceptions.RRepositoryException;
@@ -21,10 +20,13 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
@@ -32,13 +34,8 @@ import static org.openl.repository.migrator.properties.RepositoryProperties.REPO
 import static org.openl.repository.migrator.utils.FileDataUtils.copyInfoWithoutVersion;
 import static org.openl.repository.migrator.utils.FileDataUtils.getCopiedFileData;
 import static org.openl.repository.migrator.utils.FileDataUtils.getNewName;
-import static org.openl.repository.migrator.utils.FileDataUtils.initializeSetForFileItems;
-import static org.openl.repository.migrator.utils.FileDataUtils.initializeSetForFolderItems;
 import static org.openl.repository.migrator.utils.FileDataUtils.writeFile;
 
-/**
- * Hello world!
- */
 public class App {
 
     public static final String SOURCE = "source";
@@ -55,127 +52,123 @@ public class App {
 
     public static void main(String[] args) {
         logger.info("starting...");
+        long startTime = System.nanoTime();
+
         Repository source = getRepository(SOURCE);
         Repository target = getRepository(TARGET);
 
-        Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory = new HashMap<>();
-
-        Map<String, SortedSet<FileItem>> projectWithAllFileItems = new HashMap<>();
+        target = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
 
         boolean sourceSupportsFolders = source.supports().folders();
-        boolean targetSupportsFolders = target.supports().folders();
 
         try {
             if (sourceSupportsFolders) {
-                collectFoldersWithFiles(source, projectWithAllFoldersHistory);
+                migrateFoldersWithFiles(source, target);
             } else {
-                collectFileItems(source, projectWithAllFileItems);
+                migrateFiles(source, target);
             }
-        } catch (IOException e) {
-            logger.error("Application can't read files from source repository.", e);
+        } catch (Exception e) {
+            logger.error("Error during migration", e);
             System.exit(1);
         }
 
-        try {
-            if (sourceSupportsFolders) {
-                //when source and target support folders both we can easily put all the folders as is
-                if (targetSupportsFolders) {
-                    saveFoldersToFolderRepository(target, projectWithAllFoldersHistory);
+        long endTime = System.nanoTime();
+        long executionTime = (endTime - startTime) / 1000000;
 
-                } else {
-                    //for storing folders from git it's needed to archive all the versions of the path
-                    saveFoldersToStorage(target, projectWithAllFoldersHistory);
-                }
-            } else {
-                //when source not supporting folders. We're taking from jdbc, aws, jcr
-                //if we're saving to git
-                if (targetSupportsFolders) {
-                    FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
-                    saveStorageToFileRepository(projectWithAllFileItems, targetFolderRepo);
-                } else {
-                    //saving target git, jcr, aws
-                    saveStorageToStorage(target, projectWithAllFileItems);
-                }
+        String executionTimeMessage = String.format("%d min, %d sec",
+                TimeUnit.MILLISECONDS.toMinutes(executionTime),
+                TimeUnit.MILLISECONDS.toSeconds(executionTime) -
+                        TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(executionTime))
+        );
+        logger.info("Migration was finished in {} .", executionTimeMessage);
 
+    }
+
+    private static void migrateFiles(Repository source, Repository target) throws IOException {
+        List<FileData> currentProjectsList = source.list(BASE_PATH_FROM);
+        List<FileItem> resultList;
+        for (FileData currentData : currentProjectsList) {
+            // no need to copy deleted projects
+            if (currentData.isDeleted()) {
+                continue;
             }
-        } catch (IOException e) {
-            logger.error("There was an error during the saving the files to target.", e);
-            System.exit(1);
-        }
-
-        logger.info("Migration was finished successfully.");
-
-    }
-
-    private static void saveStorageToStorage(Repository target, Map<String, SortedSet<FileItem>> projectWithAllFileItems) throws IOException {
-        for (Map.Entry<String, SortedSet<FileItem>> pathWithFiles : projectWithAllFileItems.entrySet()) {
-            SortedSet<FileItem> fileItems = pathWithFiles.getValue();
-            target.save(new ArrayList<>(fileItems));
-        }
-    }
-
-    private static void saveFoldersToStorage(Repository target, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) {
-        for (Map.Entry<String, SortedSet<FolderItem>> projectNameWithFolders : projectWithAllFoldersHistory.entrySet()) {
-            for (FolderItem folderItem : projectNameWithFolders.getValue()) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
-                    for (FileChange file : folderItem.getFiles()) {
-                        writeFile(zipOutputStream, file, projectNameWithFolders.getKey());
+            String projectName = currentData.getName();
+            logger.info("Migrating project: {}", projectName);
+            SortedSet<FileItem> sortedHistory = initializeSetForFileItem();
+            List<FileData> allFileData = source.listHistory(projectName);
+            for (FileData tempData : allFileData) {
+                FileItem item = source.readHistory(tempData.getName(), tempData.getVersion());
+                FileItem copy = new FileItem(getCopiedFileData(item.getData()), item.getStream());
+                sortedHistory.add(copy);
+            }
+            if (target.supports().folders()) {
+                for (FileItem fileItem : sortedHistory) {
+                    FileData data = fileItem.getData();
+                    try (ZipInputStream zipStream = new ZipInputStream(fileItem.getStream())) {
+                        FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, fileItem.getData().getName());
+                        FileData folderToData;
+                        if (!TARGET_USES_FLAT_PROJECTS) {
+                            folderToData = createMappedFileData(BASE_PATH_TO, data);
+                        } else {
+                            folderToData = copyInfoWithoutVersion(data);
+                        }
+                        folderToData.setVersion(null);
+                        ((FolderRepository) target).save(folderToData, filesInArchive, ChangesetType.FULL);
+                    } catch (Exception e) {
+                        logger.error("There was an error on saving the file " + data.getName(), e);
                     }
-                    zipOutputStream.finish();
-                    FileData copy = folderItem.getData();
-                    copy.setSize(out.size());
-                    target.save(copy, new ByteArrayInputStream(out.toByteArray()));
-
-                } catch (Exception e) {
-                    logger.error("There was an error during saving the zip file " + folderItem.getData().getName(), e);
                 }
+            } else {
+                resultList = new ArrayList<>(sortedHistory);
+                target.save(resultList);
             }
+
         }
     }
 
-    private static void saveFoldersToFolderRepository(Repository target, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) throws IOException {
-        FolderRepository targetFolderRepo = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
-        for (Map.Entry<String, SortedSet<FolderItem>> projectNameWithFolders : projectWithAllFoldersHistory.entrySet()) {
-            SortedSet<FolderItem> folderItems = projectNameWithFolders.getValue();
-            for (FolderItem folderItem : folderItems) {
-                folderItem.getData().setVersion(null);
-            }
-            targetFolderRepo.save(new ArrayList<>(folderItems), ChangesetType.FULL);
-        }
-    }
-
-    private static void collectFoldersWithFiles(Repository source, Map<String, SortedSet<FolderItem>> projectWithAllFoldersHistory) throws IOException {
+    private static void migrateFoldersWithFiles(Repository source, Repository target) throws IOException {
         FolderRepository folderRepo = SOURCE_USES_FLAT_PROJECTS ? (FolderRepository) source : createMappedRepository(source, SOURCE);
         List<FileData> folders = folderRepo.listFolders(BASE_PATH_FROM);
+        List<FileData> foldersList;
         for (FileData folder : folders) {
-            // no need to copy deleted projects
             if (folder.isDeleted()) {
                 continue;
             }
-            List<FileData> foldersList;
             String projectName = folder.getName();
+            logger.info("Migrating project: {}", projectName);
             projectName = modifyProjectName(projectName);
             //all versions of folder
             foldersList = folderRepo.listHistory(projectName);
-            for (FileData folderState : foldersList) {
-                //all files related to the folder and given version
-                List<FileData> projectFilesWithGivenVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
-                List<FileChange> fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, projectFilesWithGivenVersion);
+            //sorted by modified time folders
+            SortedSet<FileData> foldersSortedByModifiedTime = initializeSetForFileDataFromGit();
+            foldersSortedByModifiedTime.addAll(foldersList);
+
+            List<FileData> filesOfVersion;
+            List<FileChange> fileItemsOfTheVersion;
+            for (FileData folderState : foldersSortedByModifiedTime) {
+                filesOfVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
+                fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, filesOfVersion);
                 FileData copiedFolderData;
                 if (!TARGET_USES_FLAT_PROJECTS) {
                     copiedFolderData = createMappedFileData(BASE_PATH_FROM, folderState);
                 } else {
-                    copiedFolderData = getCopiedFileData(folderState);
+                    copiedFolderData = copyInfoWithoutVersion(folderState);
                 }
-                FolderItem folderWithVersion = new FolderItem(copiedFolderData, fileItemsOfTheVersion);
-                if (projectWithAllFoldersHistory.containsKey(projectName)) {
-                    SortedSet<FolderItem> folderItems = projectWithAllFoldersHistory.get(projectName);
-                    folderItems.add(folderWithVersion);
+                if (target.supports().folders()) {
+                    ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
                 } else {
-                    SortedSet<FolderItem> init = initializeSetForFolderItems();
-                    init.add(folderWithVersion);
-                    projectWithAllFoldersHistory.put(projectName, init);
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
+                        for (FileChange file : fileItemsOfTheVersion) {
+                            writeFile(zipOutputStream, file, projectName);
+                        }
+                        zipOutputStream.finish();
+                        copiedFolderData.setSize(out.size());
+                        target.save(copiedFolderData, new ByteArrayInputStream(out.toByteArray()));
+
+                    } catch (Exception e) {
+                        logger.error("There was an error during saving the zip file " + projectName, e);
+                    }
                 }
             }
         }
@@ -191,28 +184,19 @@ public class App {
         return fileItemsOfTheVersion;
     }
 
-    private static void saveStorageToFileRepository(Map<String, SortedSet<FileItem>> projectWithAllFileItems,
-                                                    FolderRepository targetFolderRepo) {
-        for (Map.Entry<String, SortedSet<FileItem>> pathWithFiles : projectWithAllFileItems.entrySet()) {
-            String pathTo = pathWithFiles.getKey();
-            SortedSet<FileItem> fileItems = pathWithFiles.getValue();
-            for (FileItem fileItem : fileItems) {
-                FileData data = fileItem.getData();
-                try (ZipInputStream zipStream = new ZipInputStream(fileItem.getStream())) {
-                    FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, getNewName(pathTo));
-                    FileData folderToData;
-                    if (!TARGET_USES_FLAT_PROJECTS) {
-                        folderToData = createMappedFileData(BASE_PATH_TO, data);
-                    } else {
-                        folderToData = copyInfoWithoutVersion(data);
-                    }
-                    folderToData.setVersion(null);
-                    targetFolderRepo.save(folderToData, filesInArchive, ChangesetType.FULL);
-                } catch (Exception e) {
-                    logger.error("There was an error on saving the file " + data.getName(), e);
-                }
-            }
-        }
+    private static Comparator<Date> nullSafeDateComparator = Comparator
+            .nullsFirst(Date::compareTo);
+
+    private static Comparator<String> nullSafeStringComparator = Comparator
+            .nullsFirst(String::compareToIgnoreCase);
+
+    private static SortedSet<FileData> initializeSetForFileDataFromGit() {
+        return new TreeSet<>(Comparator.comparing(FileData::getModifiedAt, nullSafeDateComparator)
+                .thenComparing(FileData::getVersion, nullSafeStringComparator));
+    }
+
+    private static SortedSet<FileItem> initializeSetForFileItem() {
+        return new TreeSet<>(Comparator.comparing(x -> x.getData().getModifiedAt(), nullSafeDateComparator));
     }
 
     private static FileData createMappedFileData(String prefix, FileData data) {
@@ -225,36 +209,7 @@ public class App {
         folderToData.setComment(data.getComment());
         folderToData.setDeleted(data.isDeleted());
         folderToData.setModifiedAt(data.getModifiedAt());
-        folderToData.setVersion(data.getVersion());
         return folderToData;
-    }
-
-    private static void collectFileItems(Repository source, Map<String, SortedSet<FileItem>> projectWithAllFileItems) throws IOException {
-        List<FileData> fileDataList;
-        fileDataList = source.list(BASE_PATH_FROM);
-        for (FileData currentData : fileDataList) {
-            // no need to copy deleted projects
-            if (currentData.isDeleted()) {
-                continue;
-            }
-            /*
-               creating a map <projectName, sorted set of all the files related to the project>
-             */
-            String projectName = currentData.getName();
-            List<FileData> allFileData = source.listHistory(projectName);
-            for (FileData tempData : allFileData) {
-                FileItem item = source.readHistory(tempData.getName(), tempData.getVersion());
-                FileItem copy = new FileItem(getCopiedFileData(item.getData()), item.getStream());
-                if (projectWithAllFileItems.containsKey(projectName)) {
-                    SortedSet<FileItem> fileItems = projectWithAllFileItems.get(projectName);
-                    fileItems.add(copy);
-                } else {
-                    SortedSet<FileItem> itemsSet = initializeSetForFileItems();
-                    itemsSet.add(copy);
-                    projectWithAllFileItems.put(projectName, itemsSet);
-                }
-            }
-        }
     }
 
     private static String modifyProjectName(String projectName) {
@@ -270,7 +225,7 @@ public class App {
             Map<String, String> repoProperties = RepositoryProperties.getRepositoryProperties(settingsPrefix);
             return RepositoryInstatiator.newRepository(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".factory"), repoProperties);
         } catch (Exception e) {
-            logger.error(String.format("No able to connect to '%s' repository.", settingsPrefix));
+            logger.error(String.format("No able to connect to '%s' repository.", settingsPrefix), e);
             System.exit(1);
         }
         return r;
