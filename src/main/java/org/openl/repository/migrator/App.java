@@ -2,10 +2,11 @@ package org.openl.repository.migrator;
 
 import org.openl.repository.migrator.properties.PropertiesReader;
 import org.openl.repository.migrator.properties.RepositoryProperties;
-import org.openl.repository.migrator.repository.FileMappingData;
+import org.openl.repository.migrator.repository.MappedFileData;
 import org.openl.repository.migrator.repository.MappedRepository;
 import org.openl.rules.repository.RepositoryInstatiator;
 import org.openl.rules.repository.api.ChangesetType;
+import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
 import org.openl.rules.repository.api.FileItem;
 import org.openl.rules.repository.api.FolderItem;
@@ -118,7 +119,7 @@ public class App {
             for (FolderItem folderItem : projectNameWithFolders.getValue()) {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
-                    for (FileItem file : folderItem.getFiles()) {
+                    for (FileChange file : folderItem.getFiles()) {
                         writeFile(zipOutputStream, file, projectNameWithFolders.getKey());
                     }
                     zipOutputStream.finish();
@@ -160,10 +161,12 @@ public class App {
             for (FileData folderState : foldersList) {
                 //all files related to the folder and given version
                 List<FileData> projectFilesWithGivenVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
-                List<FileItem> fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, projectFilesWithGivenVersion);
-                FileData copiedFolderData = getCopiedFileData(folderState);
+                List<FileChange> fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, projectFilesWithGivenVersion);
+                FileData copiedFolderData;
                 if (!TARGET_USES_FLAT_PROJECTS) {
-                    copiedFolderData.addAdditionalData(new FileMappingData(folderState.getName().substring(BASE_PATH_FROM.length())));
+                    copiedFolderData = createMappedFileData(BASE_PATH_FROM, folderState);
+                } else {
+                    copiedFolderData = getCopiedFileData(folderState);
                 }
                 FolderItem folderWithVersion = new FolderItem(copiedFolderData, fileItemsOfTheVersion);
                 if (projectWithAllFoldersHistory.containsKey(projectName)) {
@@ -178,11 +181,11 @@ public class App {
         }
     }
 
-    private static List<FileItem> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion) throws IOException {
-        List<FileItem> fileItemsOfTheVersion = new ArrayList<>();
+    private static List<FileChange> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion) throws IOException {
+        List<FileChange> fileItemsOfTheVersion = new ArrayList<>();
         for (FileData fileData : projectFilesWithGivenVersion) {
             FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), fileData.getVersion());
-            FileItem copyOfFi = new FileItem(getCopiedFileData(fi.getData()), fi.getStream());
+            FileChange copyOfFi = new FileChange(getCopiedFileData(fi.getData()), fi.getStream());
             fileItemsOfTheVersion.add(copyOfFi);
         }
         return fileItemsOfTheVersion;
@@ -194,20 +197,36 @@ public class App {
             String pathTo = pathWithFiles.getKey();
             SortedSet<FileItem> fileItems = pathWithFiles.getValue();
             for (FileItem fileItem : fileItems) {
+                FileData data = fileItem.getData();
                 try (ZipInputStream zipStream = new ZipInputStream(fileItem.getStream())) {
                     FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, getNewName(pathTo));
-                    FileData folderToData = copyInfoWithoutVersion(fileItem.getData());
+                    FileData folderToData;
                     if (!TARGET_USES_FLAT_PROJECTS) {
-                        FileMappingData f = new FileMappingData(folderToData.getName().substring(BASE_PATH_TO.length()));
-                        folderToData.addAdditionalData(f);
+                        folderToData = createMappedFileData(BASE_PATH_TO, data);
+                    } else {
+                        folderToData = copyInfoWithoutVersion(data);
                     }
                     folderToData.setVersion(null);
                     targetFolderRepo.save(folderToData, filesInArchive, ChangesetType.FULL);
                 } catch (Exception e) {
-                    logger.error("There was an error on saving the file " + fileItem.getData().getName(), e);
+                    logger.error("There was an error on saving the file " + data.getName(), e);
                 }
             }
         }
+    }
+
+    private static FileData createMappedFileData(String prefix, FileData data) {
+        FileData folderToData;
+        String name = data.getName();
+        String projectName = name.substring(prefix.length());
+        String path = getNewName(name);
+        folderToData = new MappedFileData(path, projectName);
+        folderToData.setAuthor(data.getAuthor());
+        folderToData.setComment(data.getComment());
+        folderToData.setDeleted(data.isDeleted());
+        folderToData.setModifiedAt(data.getModifiedAt());
+        folderToData.setVersion(data.getVersion());
+        return folderToData;
     }
 
     private static void collectFileItems(Repository source, Map<String, SortedSet<FileItem>> projectWithAllFileItems) throws IOException {

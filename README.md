@@ -22,25 +22,19 @@ repository.source.password=your_password
 repository.source.base.path=DESIGN/rules/
 
 # Target repository settings
-repository.target.factory=org.openl.rules.repository.db.JdbcDBRepositoryFactory
+repository.target.factory=org.openl.rules.repository.FactoryNeeded
 repository.target.uri=
 repository.target.login=
 repository.target.password=
 repository.target.base.path=DESIGN/rules/
 ```
+####
 The properties file can be filled by copying the design repo settings from the properties file of the Webstudio.
-It's needed to change the prefixes of the settings. More samples are in the example folder.
-#### Jackrabbit Factory
-If you want to copy design repository from Jackrabbit, please setup the following package name
-```
-org.openl.repository.migrator.jackrabbit.
-```
-and put the corresponsed class name: LocalJackrabbitRepositoryFactory, RmiJackrabbitRepositoryFactory or WebDavRepositoryFactory.
-So, e.g. for LocalJackrabbitRepositoryFactory the name will be:
+It's needed to change the prefixes of the settings. More samples are in the [example folder](https://github.com/openl-tablets/migration-tool/tree/master/example/properties)
 
-```
-org.openl.repository.migrator.jackrabbit.LocalJackrabbitRepositoryFactory
-```
+#### Target repository
+If target repository was chosen as Git and this repository is empty (was created by webstudio/manually),
+please, initialize the target branch. 
 
 ## Running the migrator
 ### Run it as usual jar file

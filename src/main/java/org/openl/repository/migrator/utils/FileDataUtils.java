@@ -1,7 +1,7 @@
 package org.openl.repository.migrator.utils;
 
 import org.apache.commons.io.IOUtils;
-import org.openl.repository.migrator.repository.FileMappingData;
+import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
 import org.openl.rules.repository.api.FileItem;
 import org.openl.rules.repository.api.FolderItem;
@@ -36,11 +36,6 @@ public class FileDataUtils {
         copyData.setModifiedAt(data.getModifiedAt());
         copyData.setDeleted(data.isDeleted());
         copyData.setSize(data.getSize());
-        FileMappingData additionalData = data.getAdditionalData(FileMappingData.class);
-        if (additionalData != null) {
-            FileMappingData newData = new FileMappingData(getNewName(additionalData.getInternalPath()));
-            copyData.addAdditionalData(newData);
-        }
         return copyData;
     }
 
@@ -61,7 +56,7 @@ public class FileDataUtils {
         return new TreeSet<>(Comparator.comparing((FolderItem o) -> o.getData().getModifiedAt()).thenComparing(o -> o.getData().getVersion()));
     }
 
-    public static void writeFile(ZipOutputStream zipOutputStream, FileItem fd, String pathTo) throws IOException {
+    public static void writeFile(ZipOutputStream zipOutputStream, FileChange fd, String pathTo) throws IOException {
         String name = fd.getData().getName().substring(getNewName(pathTo).length());
         zipOutputStream.putNextEntry(new ZipEntry(name));
         InputStream content = fd.getStream();
