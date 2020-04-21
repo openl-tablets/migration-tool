@@ -1,10 +1,10 @@
 package org.openl.repository.migrator.utils;
 
-import org.apache.commons.io.IOUtils;
 import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
 import org.openl.rules.repository.api.FileItem;
 import org.openl.rules.repository.api.FolderItem;
+import org.openl.util.IOUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
