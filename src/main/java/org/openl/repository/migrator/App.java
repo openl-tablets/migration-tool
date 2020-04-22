@@ -123,6 +123,9 @@ public class App {
             } else {
                 resultList = new ArrayList<>(sortedHistory);
                 target.save(resultList);
+                for (FileItem fileItem : resultList) {
+                    fileItem.getStream().close();
+                }
             }
 
         }
@@ -158,6 +161,9 @@ public class App {
                 }
                 if (target.supports().folders()) {
                     ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                    for (FileChange fileItem : fileItemsOfTheVersion) {
+                        fileItem.getStream().close();
+                    }
                 } else {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
