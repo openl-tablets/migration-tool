@@ -42,11 +42,7 @@ public class FileDataUtils {
 
 
     public static String getNewName(String name) {
-        if (!name.contains(BASE_PATH_TO)) {
-            return BASE_PATH_TO + name.substring(BASE_PATH_FROM.length());
-        } else {
-            return name;
-        }
+        return name.replace(BASE_PATH_FROM, BASE_PATH_TO);
     }
 
     public static void writeFile(ZipOutputStream zipOutputStream, FileItem fd, String pathTo) throws IOException {
