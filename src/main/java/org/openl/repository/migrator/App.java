@@ -151,8 +151,9 @@ public class App {
             List<FileData> filesOfVersion;
             List<FileChange> fileItemsOfTheVersion;
             for (FileData folderState : foldersSortedByModifiedTime) {
-                filesOfVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), folderState.getVersion());
-                fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, filesOfVersion);
+                String version = folderState.getVersion();
+                filesOfVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), version);
+                fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, filesOfVersion, version);
                 FileData copiedFolderData;
                 if (!TARGET_USES_FLAT_PROJECTS) {
                     copiedFolderData = createMappedFileData(BASE_PATH_FROM, folderState);
@@ -182,10 +183,10 @@ public class App {
         }
     }
 
-    private static List<FileChange> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion) throws IOException {
+    private static List<FileChange> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion, String version) throws IOException {
         List<FileChange> fileItemsOfTheVersion = new ArrayList<>();
         for (FileData fileData : projectFilesWithGivenVersion) {
-            FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), fileData.getVersion());
+            FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), version);
             FileChange copyOfFi = new FileChange(getCopiedFileData(fi.getData()), fi.getStream());
             fileItemsOfTheVersion.add(copyOfFi);
         }
