@@ -57,7 +57,9 @@ public class App {
         Repository source = getRepository(SOURCE);
         Repository target = getRepository(TARGET);
 
-        target = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
+        if (target.supports().folders()) {
+            target = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
+        }
 
         boolean sourceSupportsFolders = source.supports().folders();
 
