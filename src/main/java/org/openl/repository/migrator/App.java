@@ -157,9 +157,14 @@ public class App {
                     copiedFolderData.addAdditionalData(new FileMappingData(folderState.getName().substring(BASE_PATH_FROM.length())));
                 }
                 if (target.supports().folders()) {
-                    ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
-                    for (FileItem fileItem : fileItemsOfTheVersion) {
-                        fileItem.getStream().close();
+                    try {
+                        ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                    } catch (Exception e) {
+                        logger.error("There was an error on saving the version: " + version, e);
+                    } finally {
+                        for (FileItem fileItem : fileItemsOfTheVersion) {
+                            fileItem.getStream().close();
+                        }
                     }
                 } else {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
