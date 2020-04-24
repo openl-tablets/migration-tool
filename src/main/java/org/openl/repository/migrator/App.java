@@ -4,6 +4,7 @@ import org.openl.repository.migrator.properties.PropertiesReader;
 import org.openl.repository.migrator.properties.RepositoryProperties;
 import org.openl.repository.migrator.repository.MappedFileData;
 import org.openl.repository.migrator.repository.MappedRepository;
+import org.openl.repository.migrator.utils.FileDataUtils;
 import org.openl.rules.repository.RepositoryInstatiator;
 import org.openl.rules.repository.api.ChangesetType;
 import org.openl.rules.repository.api.FileChange;
@@ -13,6 +14,7 @@ import org.openl.rules.repository.api.FolderRepository;
 import org.openl.rules.repository.api.Repository;
 import org.openl.rules.repository.exceptions.RRepositoryException;
 import org.openl.rules.repository.folder.FileChangesFromZip;
+import org.openl.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +30,7 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
@@ -35,7 +38,6 @@ import static org.openl.repository.migrator.properties.RepositoryProperties.REPO
 import static org.openl.repository.migrator.utils.FileDataUtils.copyInfoWithoutVersion;
 import static org.openl.repository.migrator.utils.FileDataUtils.getCopiedFileData;
 import static org.openl.repository.migrator.utils.FileDataUtils.getNewName;
-import static org.openl.repository.migrator.utils.FileDataUtils.writeFile;
 
 public class App {
 
@@ -125,7 +127,7 @@ public class App {
                     } catch (Exception e) {
                         logger.error("There was an error on saving the file " + originalName, e);
                     } finally {
-                        fileStream.close();
+                        IOUtils.closeQuietly(fileStream);
                     }
                 }
             }
@@ -169,14 +171,19 @@ public class App {
                         logger.error("There was an error on saving the version: " + version, e);
                     } finally {
                         for (FileChange fileItem : fileItemsOfTheVersion) {
-                            fileItem.getStream().close();
+                            IOUtils.closeQuietly(fileItem.getStream());
                         }
                     }
                 } else {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
                         for (FileChange file : fileItemsOfTheVersion) {
-                            writeFile(zipOutputStream, file, projectName);
+                            String fn = file.getData().getName().substring(FileDataUtils.getNewName(projectName).length());
+                            try (InputStream fileStream = file.getStream()) {
+                                zipOutputStream.putNextEntry(new ZipEntry(fn));
+                                IOUtils.copy(fileStream, zipOutputStream);
+                                zipOutputStream.closeEntry();
+                            }
                         }
                         zipOutputStream.finish();
                         copiedFolderData.setSize(out.size());

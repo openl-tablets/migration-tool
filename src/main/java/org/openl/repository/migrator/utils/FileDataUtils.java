@@ -38,15 +38,4 @@ public class FileDataUtils {
     public static String getNewName(String name) {
         return name.replace(BASE_PATH_FROM, BASE_PATH_TO);
     }
-
-    public static void writeFile(ZipOutputStream zipOutputStream, FileChange fd, String pathTo) throws IOException {
-        String name = fd.getData().getName().substring(getNewName(pathTo).length());
-        zipOutputStream.putNextEntry(new ZipEntry(name));
-        InputStream content = fd.getStream();
-        IOUtils.copy(content, zipOutputStream);
-        content.close();
-        zipOutputStream.closeEntry();
-    }
-
-
 }
