@@ -153,7 +153,8 @@ public class App {
             List<FileChange> fileItemsOfTheVersion;
             for (FileData folderState : foldersSortedByModifiedTime) {
                 String version = folderState.getVersion();
-                filesOfVersion = folderRepo.listFiles(modifyProjectName(folderState.getName()), version);
+                String name = folderState.getName();
+                filesOfVersion = folderRepo.listFiles(modifyProjectName(name), version);
                 fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, filesOfVersion, version);
                 FileData copiedFolderData;
                 if (!TARGET_USES_FLAT_PROJECTS) {
@@ -162,9 +163,14 @@ public class App {
                     copiedFolderData = copyInfoWithoutVersion(folderState);
                 }
                 if (target.supports().folders()) {
-                    ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
-                    for (FileChange fileItem : fileItemsOfTheVersion) {
-                        fileItem.getStream().close();
+                    try {
+                        ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                    } catch (Exception e) {
+                        logger.error("There was an error on saving the version: " + version, e);
+                    } finally {
+                        for (FileChange fileItem : fileItemsOfTheVersion) {
+                            fileItem.getStream().close();
+                        }
                     }
                 } else {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
