@@ -4,6 +4,7 @@ import org.openl.repository.migrator.properties.PropertiesReader;
 import org.openl.repository.migrator.properties.RepositoryProperties;
 import org.openl.repository.migrator.repository.FileMappingData;
 import org.openl.repository.migrator.repository.MappedRepository;
+import org.openl.repository.migrator.utils.FileDataUtils;
 import org.openl.rules.repository.RepositoryInstatiator;
 import org.openl.rules.repository.api.ChangesetType;
 import org.openl.rules.repository.api.FileData;
@@ -12,6 +13,7 @@ import org.openl.rules.repository.api.FolderRepository;
 import org.openl.rules.repository.api.Repository;
 import org.openl.rules.repository.exceptions.RRepositoryException;
 import org.openl.rules.repository.folder.FileChangesFromZip;
+import org.openl.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,13 +29,13 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import static org.openl.repository.migrator.properties.RepositoryProperties.REPOSITORY_PREFIX;
 import static org.openl.repository.migrator.utils.FileDataUtils.copyInfoWithoutVersion;
 import static org.openl.repository.migrator.utils.FileDataUtils.getCopiedFileData;
-import static org.openl.repository.migrator.utils.FileDataUtils.writeFile;
 
 public class App {
 
@@ -170,7 +172,12 @@ public class App {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
                         for (FileItem file : fileItemsOfTheVersion) {
-                            writeFile(zipOutputStream, file, projectName);
+                            String name = file.getData().getName().substring(FileDataUtils.getNewName(projectName).length());
+                            try (InputStream fileStream = file.getStream()) {
+                                zipOutputStream.putNextEntry(new ZipEntry(name));
+                                IOUtils.copy(fileStream, zipOutputStream);
+                                zipOutputStream.closeEntry();
+                            }
                         }
                         zipOutputStream.finish();
                         copiedFolderData.setSize(out.size());
