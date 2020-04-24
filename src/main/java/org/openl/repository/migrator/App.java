@@ -124,7 +124,7 @@ public class App {
                     } catch (Exception e) {
                         logger.error("There was an error on saving the file " + originalName, e);
                     } finally {
-                        fileStream.close();
+                        IOUtils.closeQuietly(fileStream);
                     }
                 }
             }
@@ -165,7 +165,7 @@ public class App {
                         logger.error("There was an error on saving the version: " + version, e);
                     } finally {
                         for (FileItem fileItem : fileItemsOfTheVersion) {
-                            fileItem.getStream().close();
+                            IOUtils.closeQuietly(fileItem.getStream());
                         }
                     }
                 } else {
