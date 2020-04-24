@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -86,7 +87,6 @@ public class App {
 
     private static void migrateFiles(Repository source, Repository target) throws IOException {
         List<FileData> currentProjectsList = source.list(BASE_PATH_FROM);
-        List<FileItem> resultList;
         for (FileData currentData : currentProjectsList) {
             // no need to copy deleted projects
             if (currentData.isDeleted()) {
@@ -94,37 +94,38 @@ public class App {
             }
             String projectName = currentData.getName();
             logger.info("Migrating project: {}", projectName);
-            SortedSet<FileItem> sortedHistory = initializeSetForFileItem();
+            SortedSet<FileData> sortedHistory = initializeSetForFileData();
             List<FileData> allFileData = source.listHistory(projectName);
-            for (FileData tempData : allFileData) {
-                FileItem item = source.readHistory(tempData.getName(), tempData.getVersion());
-                FileItem copy = new FileItem(getCopiedFileData(item.getData()), item.getStream());
-                sortedHistory.add(copy);
-            }
-            if (target.supports().folders()) {
-                for (FileItem fileItem : sortedHistory) {
-                    FileData data = fileItem.getData();
-                    try (ZipInputStream zipStream = new ZipInputStream(fileItem.getStream())) {
-                        FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, fileItem.getData().getName());
-                        FileData folderToData = copyInfoWithoutVersion(fileItem.getData());
+            sortedHistory.addAll(allFileData);
+            for (FileData currentFileData : sortedHistory) {
+                String originalName = currentFileData.getName();
+                String originalVersion = currentFileData.getVersion();
+                FileItem item = source.readHistory(originalName, originalVersion);
+                InputStream fileStream = item.getStream();
+                FileData copiedFileData = getCopiedFileData(item.getData());
+                if (target.supports().folders()) {
+                    try (ZipInputStream zipStream = new ZipInputStream(fileStream)) {
+                        FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, copiedFileData.getName());
                         if (!TARGET_USES_FLAT_PROJECTS) {
-                            FileMappingData f = new FileMappingData(folderToData.getName().substring(BASE_PATH_TO.length()));
-                            folderToData.addAdditionalData(f);
+                            FileMappingData f = new FileMappingData(copiedFileData.getName().substring(BASE_PATH_TO.length()));
+                            copiedFileData.addAdditionalData(f);
                         }
-                        folderToData.setVersion(null);
-                        ((FolderRepository) target).save(folderToData, filesInArchive, ChangesetType.FULL);
+                        copiedFileData.setVersion(null);
+                        ((FolderRepository) target).save(copiedFileData, filesInArchive, ChangesetType.FULL);
                     } catch (Exception e) {
-                        logger.error("There was an error on saving the file " + data.getName(), e);
+                        logger.error("There was an error on saving the file " + originalName, e);
+                    }
+
+                } else {
+                    try {
+                        target.save(copiedFileData, fileStream);
+                    } catch (Exception e) {
+                        logger.error("There was an error on saving the file " + originalName, e);
+                    } finally {
+                        fileStream.close();
                     }
                 }
-            } else {
-                resultList = new ArrayList<>(sortedHistory);
-                target.save(resultList);
-                for (FileItem fileItem : resultList) {
-                    fileItem.getStream().close();
-                }
             }
-
         }
     }
 
@@ -142,7 +143,7 @@ public class App {
             //all versions of folder
             foldersList = folderRepo.listHistory(projectName);
             //sorted by modified time folders
-            SortedSet<FileData> foldersSortedByModifiedTime = initializeSetForFileDataFromGit();
+            SortedSet<FileData> foldersSortedByModifiedTime = initializeSetForFileData();
             foldersSortedByModifiedTime.addAll(foldersList);
 
             List<FileData> filesOfVersion;
@@ -194,13 +195,9 @@ public class App {
     private static Comparator<String> nullSafeStringComparator = Comparator
             .nullsFirst(String::compareToIgnoreCase);
 
-    private static SortedSet<FileData> initializeSetForFileDataFromGit() {
+    private static SortedSet<FileData> initializeSetForFileData() {
         return new TreeSet<>(Comparator.comparing(FileData::getModifiedAt, nullSafeDateComparator)
                 .thenComparing(FileData::getVersion, nullSafeStringComparator));
-    }
-
-    private static SortedSet<FileItem> initializeSetForFileItem() {
-        return new TreeSet<>(Comparator.comparing(x -> x.getData().getModifiedAt(), nullSafeDateComparator));
     }
 
     private static String modifyProjectName(String projectName) {
