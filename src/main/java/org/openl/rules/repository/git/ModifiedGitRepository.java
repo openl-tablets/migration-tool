@@ -1149,10 +1149,22 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
         try {
             git.checkout().setName(branch).call();
             commitId = createCommit(folderData, files, changesetType);
+            counter.getAndIncrement();
             pushWithCounter();
         } catch (Exception e) {
             reset(commitId);
             throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    public void pushAfterAll() throws IOException {
+        if (counter.get() != 0) {
+            try {
+                push();
+            } catch (Exception e) {
+                log.error("After all push wasn't successful.");
+                throw new IOException(e.getMessage(), e);
+            }
         }
     }
 
@@ -1222,7 +1234,6 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
             commitId = commit.getId().getName();
 
             addTagToCommit(commit);
-            counter.getAndIncrement();
         } catch (IOException | GitAPIException e) {
             reset(commitId);
             throw e;

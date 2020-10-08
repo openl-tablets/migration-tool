@@ -14,6 +14,7 @@ import org.openl.rules.repository.api.FolderRepository;
 import org.openl.rules.repository.api.Repository;
 import org.openl.rules.repository.exceptions.RRepositoryException;
 import org.openl.rules.repository.folder.FileChangesFromZip;
+import org.openl.rules.repository.git.ModifiedGitRepository;
 import org.openl.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -130,6 +131,10 @@ public class App {
                         IOUtils.closeQuietly(fileStream);
                     }
                 }
+            }
+            if (target.supports().folders() && target instanceof ModifiedGitRepository) {
+                ModifiedGitRepository modifiedGitRepository = (ModifiedGitRepository) target;
+                modifiedGitRepository.pushAfterAll();
             }
         }
     }
