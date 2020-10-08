@@ -83,6 +83,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -120,6 +121,7 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
      * Holds secondary repositories for other branches.
      */
     private Map<String, ModifiedGitRepository> branchRepos = new HashMap<>();
+    private final AtomicInteger counter = new AtomicInteger();
 
     @Override
     public List<FileData> list(String path) throws IOException {
@@ -884,6 +886,27 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
         }
     }
 
+    private void pushWithCounter() throws GitAPIException, IOException {
+        if (counter.get() != 100) {
+            return;
+        }
+        try {
+            remoteRepoLock.lock();
+
+            PushCommand push = git.push().setPushTags().add(branch).setTimeout(connectionTimeout);
+
+            if (StringUtils.isNotBlank(login)) {
+                push.setCredentialsProvider(new UsernamePasswordCredentialsProvider(login, password));
+            }
+
+            Iterable<PushResult> results = push.call();
+            validatePushResults(results);
+        } finally {
+            remoteRepoLock.unlock();
+            counter.compareAndSet(100, 0);
+        }
+    }
+
     private void validatePushResults(Iterable<PushResult> results) throws IOException {
         for (PushResult result : results) {
             Collection<RemoteRefUpdate> remoteUpdates = result.getRemoteUpdates();
@@ -1126,7 +1149,7 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
         try {
             git.checkout().setName(branch).call();
             commitId = createCommit(folderData, files, changesetType);
-            push();
+            pushWithCounter();
         } catch (Exception e) {
             reset(commitId);
             throw new IOException(e.getMessage(), e);
@@ -1199,6 +1222,7 @@ public class ModifiedGitRepository implements FolderRepository, BranchRepository
             commitId = commit.getId().getName();
 
             addTagToCommit(commit);
+            counter.getAndIncrement();
         } catch (IOException | GitAPIException e) {
             reset(commitId);
             throw e;
