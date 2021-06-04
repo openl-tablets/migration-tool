@@ -20,7 +20,7 @@
         <log4j.version>2.13.1</log4j.version>
         <org.slf4j.version>1.7.30</org.slf4j.version>
         <mainClass>org.openl.repository.migrator.App</mainClass>
-        <httpclient.version>4.5.9</httpclient.version>
+        <httpclient.version>4.5.13</httpclient.version>
     </properties>
 
     <dependencies>
