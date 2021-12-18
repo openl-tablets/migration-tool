@@ -17,7 +17,7 @@
         <java.source.version>1.8</java.source.version>
         <openl.version>5.22.7</openl.version>
         <postgresql.driver.version>42.2.8</postgresql.driver.version>
-        <log4j.version>2.13.1</log4j.version>
+        <log4j.version>2.17.0</log4j.version>
         <org.slf4j.version>1.7.30</org.slf4j.version>
         <mainClass>org.openl.repository.migrator.App</mainClass>
         <httpclient.version>4.5.9</httpclient.version>
