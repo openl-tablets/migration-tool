@@ -1,5 +1,6 @@
 package org.openl.repository.migrator.repository;
 
+import org.apache.commons.collections4.IterableUtils;
 import org.openl.rules.repository.api.*;
 import org.openl.util.StringUtils;
 import org.slf4j.Logger;
@@ -19,16 +20,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -285,7 +277,7 @@ public class MappedRepository implements Repository, BranchRepository {
         if (folderData instanceof MappedFileData) {
             try {
                 FileItem configChange = new FileItem(configFile, updateConfigFile((MappedFileData) folderData));
-                Iterable<FileItem> filesWithMapping = new CompositeFileChanges(files, configChange);
+                Iterable<FileItem> filesWithMapping = IterableUtils.chainedIterable(files, Arrays.asList(configChange));
 
                 // Mapping was updated on previous step.
                 Map<String, String> mapping = getMappingForRead();
