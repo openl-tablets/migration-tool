@@ -7,12 +7,9 @@ import org.openl.repository.migrator.repository.MappedRepository;
 import org.openl.repository.migrator.utils.FileDataUtils;
 import org.openl.rules.repository.RepositoryInstatiator;
 import org.openl.rules.repository.api.ChangesetType;
-import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
 import org.openl.rules.repository.api.FileItem;
-import org.openl.rules.repository.api.FolderRepository;
 import org.openl.rules.repository.api.Repository;
-import org.openl.rules.repository.exceptions.RRepositoryException;
 import org.openl.rules.repository.folder.FileChangesFromZip;
 import org.openl.util.IOUtils;
 import org.slf4j.Logger;
@@ -61,7 +58,7 @@ public class App {
         Repository target = getRepository(TARGET);
 
         if (target.supports().folders()) {
-            target = TARGET_USES_FLAT_PROJECTS ? (FolderRepository) target : createMappedRepository(target, TARGET);
+            target = TARGET_USES_FLAT_PROJECTS ? target : createMappedRepository(target, TARGET);
         }
 
         boolean sourceSupportsFolders = source.supports().folders();
@@ -117,7 +114,7 @@ public class App {
                             folderToData = copyInfoWithoutVersion(copiedFileData);
                         }
                         folderToData.setVersion(null);
-                        ((FolderRepository) target).save(folderToData, filesInArchive, ChangesetType.FULL);
+                        target.save(folderToData, filesInArchive, ChangesetType.FULL);
                     } catch (Exception e) {
                         logger.error("There was an error on saving the file " + originalName, e);
                     }
@@ -135,7 +132,7 @@ public class App {
     }
 
     private static void migrateFoldersWithFiles(Repository source, Repository target) throws IOException {
-        FolderRepository folderRepo = SOURCE_USES_FLAT_PROJECTS ? (FolderRepository) source : createMappedRepository(source, SOURCE);
+        Repository folderRepo = SOURCE_USES_FLAT_PROJECTS ? source : createMappedRepository(source, SOURCE);
         List<FileData> folders = folderRepo.listFolders(BASE_PATH_FROM);
         List<FileData> foldersList;
         for (FileData folder : folders) {
@@ -152,7 +149,7 @@ public class App {
             foldersSortedByModifiedTime.addAll(foldersList);
 
             List<FileData> filesOfVersion;
-            List<FileChange> fileItemsOfTheVersion;
+            List<FileItem> fileItemsOfTheVersion;
             for (FileData folderState : foldersSortedByModifiedTime) {
                 String version = folderState.getVersion();
                 String name = folderState.getName();
@@ -166,22 +163,22 @@ public class App {
                 }
                 if (target.supports().folders()) {
                     try {
-                        ((FolderRepository) target).save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                        target.save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
                     } catch (Exception e) {
                         logger.error("There was an error on saving the version: " + version, e);
                     } finally {
-                        for (FileChange fileItem : fileItemsOfTheVersion) {
+                        for (FileItem fileItem : fileItemsOfTheVersion) {
                             IOUtils.closeQuietly(fileItem.getStream());
                         }
                     }
                 } else {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
-                        for (FileChange file : fileItemsOfTheVersion) {
+                        for (FileItem file : fileItemsOfTheVersion) {
                             String fn = file.getData().getName().substring(FileDataUtils.getNewName(projectName).length());
                             try (InputStream fileStream = file.getStream()) {
                                 zipOutputStream.putNextEntry(new ZipEntry(fn));
-                                IOUtils.copy(fileStream, zipOutputStream);
+                                fileStream.transferTo(zipOutputStream);
                                 zipOutputStream.closeEntry();
                             }
                         }
@@ -197,11 +194,11 @@ public class App {
         }
     }
 
-    private static List<FileChange> getFileItemsOfVersion(FolderRepository folderRepo, List<FileData> projectFilesWithGivenVersion, String version) throws IOException {
-        List<FileChange> fileItemsOfTheVersion = new ArrayList<>();
+    private static List<FileItem> getFileItemsOfVersion(Repository folderRepo, List<FileData> projectFilesWithGivenVersion, String version) throws IOException {
+        List<FileItem> fileItemsOfTheVersion = new ArrayList<>();
         for (FileData fileData : projectFilesWithGivenVersion) {
             FileItem fi = folderRepo.readHistory(modifyProjectName(fileData.getName()), version);
-            FileChange copyOfFi = new FileChange(getCopiedFileData(fi.getData()), fi.getStream());
+            FileItem copyOfFi = new FileItem(getCopiedFileData(fi.getData()), fi.getStream());
             fileItemsOfTheVersion.add(copyOfFi);
         }
         return fileItemsOfTheVersion;
@@ -242,7 +239,7 @@ public class App {
         Repository r = null;
         try {
             Map<String, String> repoProperties = RepositoryProperties.getRepositoryProperties(settingsPrefix);
-            return RepositoryInstatiator.newRepository(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".factory"), repoProperties);
+            return RepositoryInstatiator.newRepository(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".factory"), repoProperties::get);
         } catch (Exception e) {
             logger.error(String.format("No able to connect to '%s' repository.", settingsPrefix), e);
             System.exit(1);
@@ -252,13 +249,13 @@ public class App {
 
     private static MappedRepository createMappedRepository(Repository repo, String settingsPrefix) {
         MappedRepository mappedRepository = new MappedRepository();
-        mappedRepository.setDelegate((FolderRepository) repo);
+        mappedRepository.setDelegate(repo);
         mappedRepository.setBaseFolder(settingsPrefix.equals(SOURCE) ? BASE_PATH_FROM : BASE_PATH_TO);
         mappedRepository.setConfigFile(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".folder-structure.configuration"));
         try {
             mappedRepository.initialize();
             return mappedRepository;
-        } catch (RRepositoryException e) {
+        } catch (Exception e) {
             logger.error("Can't create mapped repository.", e);
             System.exit(1);
         }

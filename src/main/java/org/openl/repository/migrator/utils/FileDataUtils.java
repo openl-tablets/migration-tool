@@ -1,13 +1,6 @@
 package org.openl.repository.migrator.utils;
 
-import org.openl.rules.repository.api.FileChange;
 import org.openl.rules.repository.api.FileData;
-import org.openl.util.IOUtils;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.openl.repository.migrator.App.BASE_PATH_FROM;
 import static org.openl.repository.migrator.App.BASE_PATH_TO;

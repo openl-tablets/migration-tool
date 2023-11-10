@@ -13,14 +13,13 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.target.version>1.8</java.target.version>
-        <java.source.version>1.8</java.source.version>
-        <openl.version>5.22.7</openl.version>
-        <postgresql.driver.version>42.2.8</postgresql.driver.version>
-        <log4j.version>2.13.1</log4j.version>
-        <org.slf4j.version>1.7.30</org.slf4j.version>
+        <java.target.version>11</java.target.version>
+        <java.source.version>11</java.source.version>
+        <openl.version>5.26.12</openl.version>
+        <postgresql.driver.version>42.6.0</postgresql.driver.version>
+        <log4j.version>2.21.0</log4j.version>
+        <org.slf4j.version>1.7.36</org.slf4j.version>
         <mainClass>org.openl.repository.migrator.App</mainClass>
-        <httpclient.version>4.5.9</httpclient.version>
     </properties>
 
     <dependencies>
@@ -38,23 +37,6 @@
             <groupId>org.openl.rules</groupId>
             <artifactId>org.openl.rules.repository.git</artifactId>
             <version>${openl.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.openl.rules</groupId>
-            <artifactId>org.openl.rules.repository.jcr</artifactId>
-            <version>${openl.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openl.rules</groupId>
-            <artifactId>org.openl.rules.repository.jcr.jackrabbit</artifactId>
-            <version>${openl.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.httpcomponents</groupId>
-            <artifactId>httpclient</artifactId>
-            <version>${httpclient.version}</version>
         </dependency>
 
         <dependency>
@@ -89,7 +71,7 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>4.12</version>
+            <version>4.13.1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -140,8 +122,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
+                    <source>11</source>
+                    <target>11</target>
                 </configuration>
             </plugin>
             <plugin>

@@ -1,18 +1,6 @@
 package org.openl.repository.migrator.repository;
 
-import org.openl.rules.repository.RRepositoryFactory;
-import org.openl.rules.repository.api.ArtefactProperties;
-import org.openl.rules.repository.api.BranchRepository;
-import org.openl.rules.repository.api.ChangesetType;
-import org.openl.rules.repository.api.Features;
-import org.openl.rules.repository.api.FeaturesBuilder;
-import org.openl.rules.repository.api.FileChange;
-import org.openl.rules.repository.api.FileData;
-import org.openl.rules.repository.api.FileItem;
-import org.openl.rules.repository.api.FolderItem;
-import org.openl.rules.repository.api.FolderRepository;
-import org.openl.rules.repository.api.Listener;
-import org.openl.rules.repository.exceptions.RRepositoryException;
+import org.openl.rules.repository.api.*;
 import org.openl.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,11 +36,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class MappedRepository implements FolderRepository, BranchRepository, RRepositoryFactory, Closeable {
+public class MappedRepository implements Repository, BranchRepository {
     private static final Pattern PROJECT_PROPERTY_PATTERN = Pattern.compile("(project\\.\\d+\\.)\\w+");
     private final Logger log = LoggerFactory.getLogger(MappedRepository.class);
 
-    private FolderRepository delegate;
+    private Repository delegate;
 
     private volatile Map<String, String> externalToInternal = Collections.emptyMap();
 
@@ -60,7 +48,7 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     private String configFile;
     private String baseFolder;
 
-    public void setDelegate(FolderRepository delegate) {
+    public void setDelegate(Repository delegate) {
         this.delegate = delegate;
     }
 
@@ -95,6 +83,16 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
         if (delegate instanceof Closeable) {
             ((Closeable) delegate).close();
         }
+    }
+
+    @Override
+    public String getId() {
+        return null;
+    }
+
+    @Override
+    public String getName() {
+        return null;
     }
 
     @Override
@@ -146,9 +144,14 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     @Override
-    public boolean delete(FileData data) {
+    public boolean delete(FileData data) throws IOException{
         Map<String, String> mapping = getMappingForRead();
         return delegate.delete(toInternal(mapping, data));
+    }
+
+    @Override
+    public boolean delete(List<FileData> list) throws IOException {
+        return false;
     }
 
     @Override
@@ -188,7 +191,7 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     @Override
-    public boolean deleteHistory(FileData data) {
+    public boolean deleteHistory(FileData data) throws IOException{
         Map<String, String> mapping = getMappingForRead();
 
         if (data.getVersion() == null) {
@@ -278,11 +281,11 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     @Override
-    public FileData save(FileData folderData, Iterable<FileChange> files, ChangesetType changesetType) throws IOException {
+    public FileData save(FileData folderData, Iterable<FileItem> files, ChangesetType changesetType) throws IOException {
         if (folderData instanceof MappedFileData) {
             try {
-                FileChange configChange = new FileChange(configFile, updateConfigFile((MappedFileData) folderData));
-                Iterable<FileChange> filesWithMapping = new CompositeFileChanges(files, configChange);
+                FileItem configChange = new FileItem(configFile, updateConfigFile((MappedFileData) folderData));
+                Iterable<FileItem> filesWithMapping = new CompositeFileChanges(files, configChange);
 
                 // Mapping was updated on previous step.
                 Map<String, String> mapping = getMappingForRead();
@@ -302,17 +305,6 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     @Override
-    public List<FileData> save(List<FolderItem> folderItems, ChangesetType changesetType) throws IOException {
-        if (folderItems.isEmpty()) {
-            return Collections.emptyList();
-        }
-        for (FolderItem folderItem : folderItems) {
-            save(folderItem.getData(), folderItem.getFiles(), changesetType);
-        }
-        return new ArrayList<>();
-    }
-
-    @Override
     public Features supports() {
         return new FeaturesBuilder(delegate)
                 .setVersions(delegate.supports().versions())
@@ -322,8 +314,18 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     @Override
+    public boolean isMergedInto(String s, String s1) throws IOException {
+        return false;
+    }
+
+    @Override
     public String getBranch() {
         return ((BranchRepository) delegate).getBranch();
+    }
+
+    @Override
+    public boolean isBranchProtected(String s) {
+        return false;
     }
 
     @Override
@@ -346,12 +348,12 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
         BranchRepository delegateForBranch = ((BranchRepository) delegate).forBranch(branch);
 
         MappedRepository mappedRepository = new MappedRepository();
-        mappedRepository.setDelegate((FolderRepository) delegateForBranch);
+        mappedRepository.setDelegate(delegateForBranch);
         mappedRepository.setConfigFile(configFile);
         mappedRepository.setBaseFolder(baseFolder);
         try {
             mappedRepository.initialize();
-        } catch (RRepositoryException e) {
+        } catch (Exception e) {
             throw new IOException(e.getMessage(), e);
         }
 
@@ -370,13 +372,13 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
         return mapping;
     }
 
-    private Iterable<FileChange> toInternal(final Map<String, String> mapping, final Iterable<FileChange> files) {
-        return new Iterable<FileChange>() {
+    private Iterable<FileItem> toInternal(final Map<String, String> mapping, final Iterable<FileItem> files) {
+        return new Iterable<FileItem>() {
             @SuppressWarnings("NullableProblems")
             @Override
-            public Iterator<FileChange> iterator() {
-                return new Iterator<FileChange>() {
-                    private final Iterator<FileChange> delegate = files.iterator();
+            public Iterator<FileItem> iterator() {
+                return new Iterator<FileItem>() {
+                    private final Iterator<FileItem> delegate = files.iterator();
 
                     @Override
                     public boolean hasNext() {
@@ -384,12 +386,12 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
                     }
 
                     @Override
-                    public FileChange next() {
-                        FileChange external = delegate.next();
+                    public FileItem next() {
+                        FileItem external = delegate.next();
                         FileData data = external.getData();
                         String name = toInternal(mapping, external.getData().getName());
                         data.setName(name);
-                        return new FileChange(data, external.getStream());
+                        return new FileItem(data, external.getStream());
                     }
 
                     @Override
@@ -460,13 +462,8 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
         return internalPath;
     }
 
-    @Override
-    public void initialize() throws RRepositoryException {
-        try {
-            refreshMapping();
-        } catch (Exception e) {
-            throw new RRepositoryException(e.getMessage(), e);
-        }
+    public void initialize() {
+        refreshMapping();
     }
 
     /**
@@ -478,7 +475,7 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
      * @return loaded mapping
      * @throws IOException if it was any error during operation
      */
-    private Map<String, String> readExternalToInternalMap(FolderRepository delegate,
+    private Map<String, String> readExternalToInternalMap(Repository delegate,
                                                           String configFile,
                                                           String baseFolder) throws IOException {
         baseFolder = StringUtils.isBlank(baseFolder) ? "" : baseFolder.endsWith("/") ? baseFolder : baseFolder + "/";
@@ -536,15 +533,14 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     }
 
     /**
-     * Detect existing projects and Deploy Configurations based on rules.xml and
-     * {@link ArtefactProperties#DESCRIPTORS_FILE}. If there are several projects with same name, suffix will be added
-     * to them
+     * Detect existing projects and Deploy Configurations based on rules.xml.
+     * If there are several projects with same name, suffix will be added to them
      *
      * @param delegate   repository to detect projects
      * @param baseFolder virtual base folder. WebStudio will think that projects can be found in this folder.
      * @return generated mapping
      */
-    private Map<String, String> generateExternalToInternalMap(FolderRepository delegate,
+    private Map<String, String> generateExternalToInternalMap(Repository delegate,
                                                               String baseFolder) throws IOException {
         Map<String, String> externalToInternal = new LinkedHashMap<>();
         List<FileData> allFiles = delegate.list("");
@@ -650,5 +646,20 @@ public class MappedRepository implements FolderRepository, BranchRepository, RRe
     @Override
     public boolean branchExists(String branch) throws IOException {
         return delegate instanceof BranchRepository && ((BranchRepository) delegate).branchExists(branch);
+    }
+
+    @Override
+    public void merge(String s, UserInfo userInfo, ConflictResolveData conflictResolveData) throws IOException {
+
+    }
+
+    @Override
+    public String getBaseBranch() {
+        return null;
+    }
+
+    @Override
+    public void pull(UserInfo userInfo) throws IOException {
+
     }
 }
