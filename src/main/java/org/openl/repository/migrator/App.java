@@ -4,12 +4,8 @@ import org.openl.repository.migrator.properties.PropertiesReader;
 import org.openl.repository.migrator.properties.RepositoryProperties;
 import org.openl.repository.migrator.repository.MappedFileData;
 import org.openl.repository.migrator.repository.MappedRepository;
-import org.openl.repository.migrator.utils.FileDataUtils;
 import org.openl.rules.repository.RepositoryInstatiator;
-import org.openl.rules.repository.api.ChangesetType;
-import org.openl.rules.repository.api.FileData;
-import org.openl.rules.repository.api.FileItem;
-import org.openl.rules.repository.api.Repository;
+import org.openl.rules.repository.api.*;
 import org.openl.rules.repository.folder.FileChangesFromZip;
 import org.openl.util.IOUtils;
 import org.slf4j.Logger;
@@ -32,9 +28,6 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import static org.openl.repository.migrator.properties.RepositoryProperties.REPOSITORY_PREFIX;
-import static org.openl.repository.migrator.utils.FileDataUtils.copyInfoWithoutVersion;
-import static org.openl.repository.migrator.utils.FileDataUtils.getCopiedFileData;
-import static org.openl.repository.migrator.utils.FileDataUtils.getNewName;
 
 public class App {
 
@@ -175,7 +168,7 @@ public class App {
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     try (ZipOutputStream zipOutputStream = new ZipOutputStream(out)) {
                         for (FileItem file : fileItemsOfTheVersion) {
-                            String fn = file.getData().getName().substring(FileDataUtils.getNewName(projectName).length());
+                            String fn = file.getData().getName().substring(getNewName(projectName).length());
                             try (InputStream fileStream = file.getStream()) {
                                 zipOutputStream.putNextEntry(new ZipEntry(fn));
                                 fileStream.transferTo(zipOutputStream);
@@ -262,4 +255,37 @@ public class App {
         return mappedRepository;
     }
 
+    public static FileData getCopiedFileData(FileData data) {
+        FileData copyData = copyInfoWithoutVersion(data);
+        copyData.setVersion(data.getVersion());
+        return copyData;
+    }
+
+    public static FileData copyInfoWithoutVersion(FileData data) {
+        FileData copyData = new FileData();
+        copyData.setName(getNewName(data.getName()));
+        copyData.setComment(data.getComment());
+        UserInfo author = data.getAuthor();
+        copyData.setAuthor(map(author));
+        copyData.setModifiedAt(data.getModifiedAt());
+        copyData.setDeleted(data.isDeleted());
+        copyData.setSize(data.getSize());
+        return copyData;
+    }
+
+    private static UserInfo map(UserInfo author) {
+
+        if (author.getEmail() != null) {
+            return author;
+        }
+        String username = author.getUsername();
+        String email = username + "@example.com";
+        String displayName = username;
+        return new UserInfo(username, email, displayName);
+    }
+
+
+    public static String getNewName(String name) {
+        return name.replace(BASE_PATH_FROM, BASE_PATH_TO);
+    }
 }
