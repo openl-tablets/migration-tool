@@ -42,6 +42,10 @@ After adding the properties file, it's need to launch the generated jar file.
 ```
 java -jar openl-repository-migrator-1.0-SNAPSHOT.jar
 ```
+or, if a JDBC driver for a database is required and another properties file:
+```
+java -classpath jdbc-driver.jar -jar openl-repository-migrator-1.0-SNAPSHOT.jar my-application.properties
+```
 This command will launch the migration process with setting which were added before.
 During the migration there will be a log in console with detailed information.
 
@@ -49,7 +53,7 @@ During the migration there will be a log in console with detailed information.
 Examples for the different design repository settings are located in example/properties folder.
 
 #### Requirements:
-* JDK 8
+* JDK 11
 
 ### For developers
 #### How to build
