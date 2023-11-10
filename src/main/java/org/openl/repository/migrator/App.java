@@ -1,7 +1,5 @@
 package org.openl.repository.migrator;
 
-import org.openl.repository.migrator.properties.PropertiesReader;
-import org.openl.repository.migrator.properties.RepositoryProperties;
 import org.openl.repository.migrator.repository.MappedFileData;
 import org.openl.repository.migrator.repository.MappedRepository;
 import org.openl.rules.repository.RepositoryInstatiator;
@@ -11,41 +9,51 @@ import org.openl.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.SortedSet;
-import java.util.TreeSet;
+import java.io.*;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
-import static org.openl.repository.migrator.properties.RepositoryProperties.REPOSITORY_PREFIX;
-
 public class App {
+
+    public static final String REPOSITORY_PREFIX = "repository.";
 
     public static final String SOURCE = "source";
     public static final String TARGET = "target";
 
-    public static final String BASE_PATH_FROM = PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".base.path");
-    public static final String BASE_PATH_TO = PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".base.path");
+    private static final Properties PROPERTIES = new Properties();
+    private static String BASE_PATH_FROM;
+    private static String BASE_PATH_TO;
 
-    public static final boolean SOURCE_USES_FLAT_PROJECTS = Boolean.parseBoolean(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".folder-structure.flat", "true"));
-    public static final boolean TARGET_USES_FLAT_PROJECTS = Boolean.parseBoolean(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".folder-structure.flat", "true"));
+    private static boolean SOURCE_USES_FLAT_PROJECTS;
+    private static boolean TARGET_USES_FLAT_PROJECTS;
 
     private static final Logger logger = LoggerFactory.getLogger(App.class);
 
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception{
         logger.info("starting...");
         long startTime = System.nanoTime();
+
+        String propFilePath = "application.properties";
+        if (args != null && args.length>0) {
+            propFilePath = args[0];
+        }
+
+        try(var is = getResourceInputStream(propFilePath)) {
+            PROPERTIES.load(is);
+            logger.info("properties are loaded...");
+        }
+
+        BASE_PATH_FROM = PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".base.path");
+        BASE_PATH_TO = PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".base.path");
+
+        SOURCE_USES_FLAT_PROJECTS = Boolean.parseBoolean(PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".folder-structure.flat", "true"));
+        TARGET_USES_FLAT_PROJECTS = Boolean.parseBoolean(PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".folder-structure.flat", "true"));
+
+
 
         Repository source = getRepository(SOURCE);
         Repository target = getRepository(TARGET);
@@ -77,6 +85,38 @@ public class App {
         );
         logger.info("Migration was finished in {} .", executionTimeMessage);
 
+    }
+
+    private static InputStream getResourceInputStream(String resource) {
+        try {
+            return new FileInputStream(resource);
+        } catch (FileNotFoundException ignore) {
+            // ignore
+        }
+
+        try {
+            File path = new File(App.class.getProtectionDomain().getCodeSource().getLocation().getPath());
+            return new FileInputStream(new File(path.getParent(), resource));
+        } catch (FileNotFoundException ignore) {
+            // ignore
+        }
+
+        InputStream stream = null;
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        if (classLoader != null) {
+            stream = classLoader.getResourceAsStream(resource);
+        }
+        if (stream == null) {
+            stream = App.class.getResourceAsStream(resource);
+        }
+        if (stream == null) {
+            stream = App.class.getClassLoader().getResourceAsStream(resource);
+        }
+        if (stream == null) {
+            logger.error(resource + " properties file not found.");
+            System.exit(1);
+        }
+        return stream;
     }
 
     private static void migrateFiles(Repository source, Repository target) throws IOException {
@@ -231,8 +271,7 @@ public class App {
     private static Repository getRepository(String settingsPrefix) {
         Repository r = null;
         try {
-            Map<String, String> repoProperties = RepositoryProperties.getRepositoryProperties(settingsPrefix);
-            return RepositoryInstatiator.newRepository(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".factory"), repoProperties::get);
+            return RepositoryInstatiator.newRepository(REPOSITORY_PREFIX + settingsPrefix, PROPERTIES::getProperty);
         } catch (Exception e) {
             logger.error(String.format("No able to connect to '%s' repository.", settingsPrefix), e);
             System.exit(1);
@@ -244,7 +283,7 @@ public class App {
         MappedRepository mappedRepository = new MappedRepository();
         mappedRepository.setDelegate(repo);
         mappedRepository.setBaseFolder(settingsPrefix.equals(SOURCE) ? BASE_PATH_FROM : BASE_PATH_TO);
-        mappedRepository.setConfigFile(PropertiesReader.PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".folder-structure.configuration"));
+        mappedRepository.setConfigFile(PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".folder-structure.configuration"));
         try {
             mappedRepository.initialize();
             return mappedRepository;
