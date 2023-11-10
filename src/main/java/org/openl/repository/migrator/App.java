@@ -1,7 +1,5 @@
 package org.openl.repository.migrator;
 
-import org.openl.repository.migrator.repository.MappedFileData;
-import org.openl.repository.migrator.repository.MappedRepository;
 import org.openl.rules.repository.RepositoryInstatiator;
 import org.openl.rules.repository.api.*;
 import org.openl.rules.repository.folder.FileChangesFromZip;
@@ -27,9 +25,6 @@ public class App {
     private static String BASE_PATH_FROM;
     private static String BASE_PATH_TO;
 
-    private static boolean SOURCE_USES_FLAT_PROJECTS;
-    private static boolean TARGET_USES_FLAT_PROJECTS;
-
     private static final Logger logger = LoggerFactory.getLogger(App.class);
 
 
@@ -50,17 +45,8 @@ public class App {
         BASE_PATH_FROM = PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".base.path");
         BASE_PATH_TO = PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".base.path");
 
-        SOURCE_USES_FLAT_PROJECTS = Boolean.parseBoolean(PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".folder-structure.flat", "true"));
-        TARGET_USES_FLAT_PROJECTS = Boolean.parseBoolean(PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".folder-structure.flat", "true"));
-
-
-
         Repository source = getRepository(SOURCE);
         Repository target = getRepository(TARGET);
-
-        if (target.supports().folders()) {
-            target = TARGET_USES_FLAT_PROJECTS ? target : createMappedRepository(target, TARGET);
-        }
 
         boolean sourceSupportsFolders = source.supports().folders();
 
@@ -141,11 +127,7 @@ public class App {
                     try (ZipInputStream zipStream = new ZipInputStream(fileStream)) {
                         FileChangesFromZip filesInArchive = new FileChangesFromZip(zipStream, copiedFileData.getName());
                         FileData folderToData;
-                        if (!TARGET_USES_FLAT_PROJECTS) {
-                            folderToData = createMappedFileData(BASE_PATH_TO, copiedFileData);
-                        } else {
-                            folderToData = copyInfoWithoutVersion(copiedFileData);
-                        }
+                        folderToData = copyInfoWithoutVersion(copiedFileData);
                         folderToData.setVersion(null);
                         target.save(folderToData, filesInArchive, ChangesetType.FULL);
                     } catch (Exception e) {
@@ -165,8 +147,7 @@ public class App {
     }
 
     private static void migrateFoldersWithFiles(Repository source, Repository target) throws IOException {
-        Repository folderRepo = SOURCE_USES_FLAT_PROJECTS ? source : createMappedRepository(source, SOURCE);
-        List<FileData> folders = folderRepo.listFolders(BASE_PATH_FROM);
+        List<FileData> folders = source.listFolders(BASE_PATH_FROM);
         List<FileData> foldersList;
         for (FileData folder : folders) {
             if (folder.isDeleted()) {
@@ -176,7 +157,7 @@ public class App {
             logger.info("Migrating project: {}", projectName);
             projectName = modifyProjectName(projectName);
             //all versions of folder
-            foldersList = folderRepo.listHistory(projectName);
+            foldersList = source.listHistory(projectName);
             //sorted by modified time folders
             SortedSet<FileData> foldersSortedByModifiedTime = initializeSetForFileData();
             foldersSortedByModifiedTime.addAll(foldersList);
@@ -186,14 +167,10 @@ public class App {
             for (FileData folderState : foldersSortedByModifiedTime) {
                 String version = folderState.getVersion();
                 String name = folderState.getName();
-                filesOfVersion = folderRepo.listFiles(modifyProjectName(name), version);
-                fileItemsOfTheVersion = getFileItemsOfVersion(folderRepo, filesOfVersion, version);
+                filesOfVersion = source.listFiles(modifyProjectName(name), version);
+                fileItemsOfTheVersion = getFileItemsOfVersion(source, filesOfVersion, version);
                 FileData copiedFolderData;
-                if (!TARGET_USES_FLAT_PROJECTS) {
-                    copiedFolderData = createMappedFileData(BASE_PATH_FROM, folderState);
-                } else {
-                    copiedFolderData = copyInfoWithoutVersion(folderState);
-                }
+                copiedFolderData = copyInfoWithoutVersion(folderState);
                 if (target.supports().folders()) {
                     try {
                         target.save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
@@ -248,19 +225,6 @@ public class App {
                 .thenComparing(FileData::getVersion, nullSafeStringComparator));
     }
 
-    private static FileData createMappedFileData(String prefix, FileData data) {
-        FileData folderToData;
-        String name = data.getName();
-        String projectName = name.substring(prefix.length());
-        String path = getNewName(name);
-        folderToData = new MappedFileData(path, projectName);
-        folderToData.setAuthor(data.getAuthor());
-        folderToData.setComment(data.getComment());
-        folderToData.setDeleted(data.isDeleted());
-        folderToData.setModifiedAt(data.getModifiedAt());
-        return folderToData;
-    }
-
     private static String modifyProjectName(String projectName) {
         if (!projectName.isEmpty() && !projectName.endsWith("/")) {
             projectName += "/";
@@ -277,21 +241,6 @@ public class App {
             System.exit(1);
         }
         return r;
-    }
-
-    private static MappedRepository createMappedRepository(Repository repo, String settingsPrefix) {
-        MappedRepository mappedRepository = new MappedRepository();
-        mappedRepository.setDelegate(repo);
-        mappedRepository.setBaseFolder(settingsPrefix.equals(SOURCE) ? BASE_PATH_FROM : BASE_PATH_TO);
-        mappedRepository.setConfigFile(PROPERTIES.getProperty(REPOSITORY_PREFIX + settingsPrefix + ".folder-structure.configuration"));
-        try {
-            mappedRepository.initialize();
-            return mappedRepository;
-        } catch (Exception e) {
-            logger.error("Can't create mapped repository.", e);
-            System.exit(1);
-        }
-        return mappedRepository;
     }
 
     public static FileData getCopiedFileData(FileData data) {
