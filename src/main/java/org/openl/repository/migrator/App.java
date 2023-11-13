@@ -22,6 +22,9 @@ public class App {
     public static final String TARGET = "target";
 
     private static final Properties PROPERTIES = new Properties();
+    private static final Properties USERS = new Properties();
+    private static String EMAIL_TEMPLATE;
+    private static String DISPLAYNAME_TEMPLATE;
     private static String BASE_PATH_FROM;
     private static String BASE_PATH_TO;
 
@@ -39,11 +42,21 @@ public class App {
 
         try(var is = getResourceInputStream(propFilePath)) {
             PROPERTIES.load(is);
-            logger.info("properties are loaded...");
+            logger.info("'{}' properties have been loaded.", propFilePath);
         }
 
         BASE_PATH_FROM = PROPERTIES.getProperty(REPOSITORY_PREFIX + SOURCE + ".base.path");
         BASE_PATH_TO = PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".base.path");
+        EMAIL_TEMPLATE = PROPERTIES.getProperty("users.email", "{username}@example.com");
+        DISPLAYNAME_TEMPLATE = PROPERTIES.getProperty("users.displayName", "{username}");
+        var usersFile = PROPERTIES.getProperty("users.file");
+
+        if (usersFile != null) {
+            try(var is = getResourceInputStream(usersFile)) {
+                USERS.load(is);
+                logger.info("'{}' properties have been loaded.", usersFile);
+            }
+        }
 
         Repository source = getRepository(SOURCE);
         Repository target = getRepository(TARGET);
@@ -267,8 +280,15 @@ public class App {
             return author;
         }
         String username = author.getUsername();
-        String email = username + "@example.com";
-        String displayName = username;
+        String email = EMAIL_TEMPLATE.replace("{username}", username);
+        String displayName = DISPLAYNAME_TEMPLATE.replace("{username}", username);
+        String user = USERS.getProperty(username);
+        if (user != null) {
+            var parts = user.split(",", 2);
+            email = parts[0].trim();
+            displayName = parts.length > 1 ? parts[1].trim() : displayName;
+        }
+
         return new UserInfo(username, email, displayName);
     }
 
