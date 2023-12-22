@@ -1,18 +1,35 @@
 package org.openl.repository.migrator;
 
-import org.openl.rules.repository.RepositoryInstatiator;
-import org.openl.rules.repository.api.*;
-import org.openl.rules.repository.folder.FileChangesFromZip;
-import org.openl.util.IOUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.*;
-import java.util.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+import java.util.Properties;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+
+import org.openl.rules.repository.RepositoryInstatiator;
+import org.openl.rules.repository.api.ChangesetType;
+import org.openl.rules.repository.api.FileData;
+import org.openl.rules.repository.api.FileItem;
+import org.openl.rules.repository.api.Repository;
+import org.openl.rules.repository.api.UserInfo;
+import org.openl.rules.repository.folder.FileChangesFromZip;
+import org.openl.util.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class App {
 
@@ -25,6 +42,7 @@ public class App {
     private static final Properties USERS = new Properties();
     private static String EMAIL_TEMPLATE;
     private static String DISPLAYNAME_TEMPLATE;
+    private static String USER_MESSAGE_TEMPLATE;
     private static String BASE_PATH_FROM;
     private static String BASE_PATH_TO;
 
@@ -49,6 +67,7 @@ public class App {
         BASE_PATH_TO = PROPERTIES.getProperty(REPOSITORY_PREFIX + TARGET + ".base.path");
         EMAIL_TEMPLATE = PROPERTIES.getProperty("users.email", "{username}@example.com");
         DISPLAYNAME_TEMPLATE = PROPERTIES.getProperty("users.displayName", "{username}");
+        USER_MESSAGE_TEMPLATE = PROPERTIES.getProperty("user-message.template", "{0}");
         var usersFile = PROPERTIES.getProperty("users.file");
 
         if (usersFile != null) {
@@ -121,14 +140,15 @@ public class App {
     private static void migrateFiles(Repository source, Repository target) throws IOException {
         List<FileData> currentProjectsList = source.list(BASE_PATH_FROM);
         for (FileData currentData : currentProjectsList) {
+            String projectName = currentData.getName();
             // no need to copy deleted projects
             if (currentData.isDeleted()) {
+                logger.info("Skipping deleted '{}' project with version '{}'", projectName, currentData.getVersion());
                 continue;
             }
-            String projectName = currentData.getName();
-            logger.info("Migrating project: {}", projectName);
             SortedSet<FileData> sortedHistory = initializeSetForFileData();
             List<FileData> allFileData = source.listHistory(projectName);
+            logger.info("Migrating project '{}'. Revisions count {}", projectName, allFileData.size());
             sortedHistory.addAll(allFileData);
             for (FileData currentFileData : sortedHistory) {
                 String originalName = currentFileData.getName();
@@ -142,15 +162,23 @@ public class App {
                         FileData folderToData;
                         folderToData = copyInfoWithoutVersion(copiedFileData);
                         folderToData.setVersion(null);
-                        target.save(folderToData, filesInArchive, ChangesetType.FULL);
+                        modifyCommentWithTemplate(folderToData);
+                        var updatedData = target.save(folderToData, filesInArchive, ChangesetType.FULL);
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Migration completed from version '{}' to '{}'.", originalVersion, updatedData.getVersion());
+                        }
                     } catch (Exception e) {
-                        logger.error("There was an error on saving the file " + originalName, e);
+                        logger.error("Failed to save the file '{}' with version '{}'", originalName, originalVersion, e);
                     }
                 } else {
                     try {
-                        target.save(copiedFileData, fileStream);
+                        modifyCommentWithTemplate(copiedFileData);
+                        var updatedData = target.save(copiedFileData, fileStream);
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Migration completed from version '{}' to '{}'.", originalVersion, updatedData.getVersion());
+                        }
                     } catch (Exception e) {
-                        logger.error("There was an error on saving the file " + originalName, e);
+                        logger.error("Failed to save the file '{}' with version '{}'", originalName, originalVersion, e);
                     } finally {
                         IOUtils.closeQuietly(fileStream);
                     }
@@ -163,14 +191,15 @@ public class App {
         List<FileData> folders = source.listFolders(BASE_PATH_FROM);
         List<FileData> foldersList;
         for (FileData folder : folders) {
+            var originalProjectName = folder.getName();
             if (folder.isDeleted()) {
+                logger.info("Skipping deleted '{}' project with version '{}'", originalProjectName, folder.getVersion());
                 continue;
             }
-            String projectName = folder.getName();
-            logger.info("Migrating project: {}", projectName);
-            projectName = modifyProjectName(projectName);
+            var projectName = modifyProjectName(originalProjectName);
             //all versions of folder
             foldersList = source.listHistory(projectName);
+            logger.info("Migrating project '{}'. Revisions count {}", originalProjectName, foldersList.size());
             //sorted by modified time folders
             SortedSet<FileData> foldersSortedByModifiedTime = initializeSetForFileData();
             foldersSortedByModifiedTime.addAll(foldersList);
@@ -186,9 +215,13 @@ public class App {
                 copiedFolderData = copyInfoWithoutVersion(folderState);
                 if (target.supports().folders()) {
                     try {
-                        target.save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                        modifyCommentWithTemplate(copiedFolderData);
+                        var updatedData = target.save(copiedFolderData, fileItemsOfTheVersion, ChangesetType.FULL);
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Migration completed from version '{}' to '{}'.", version, updatedData.getVersion());
+                        }
                     } catch (Exception e) {
-                        logger.error("There was an error on saving the version: " + version, e);
+                        logger.error("Failed to save the file '{}' with version '{}'", name, version, e);
                     } finally {
                         for (FileItem fileItem : fileItemsOfTheVersion) {
                             IOUtils.closeQuietly(fileItem.getStream());
@@ -207,10 +240,13 @@ public class App {
                         }
                         zipOutputStream.finish();
                         copiedFolderData.setSize(out.size());
-                        target.save(copiedFolderData, new ByteArrayInputStream(out.toByteArray()));
-
+                        modifyCommentWithTemplate(copiedFolderData);
+                        var updatedData = target.save(copiedFolderData, new ByteArrayInputStream(out.toByteArray()));
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Migration completed from version '{}' to '{}'.", version, updatedData.getVersion());
+                        }
                     } catch (Exception e) {
-                        logger.error("There was an error during saving the zip file " + projectName, e);
+                        logger.error("Failed to save zip file '{}' with version '{}'", projectName, version, e);
                     }
                 }
             }
@@ -227,10 +263,10 @@ public class App {
         return fileItemsOfTheVersion;
     }
 
-    private static Comparator<Date> nullSafeDateComparator = Comparator
+    private static final Comparator<Date> nullSafeDateComparator = Comparator
             .nullsFirst(Date::compareTo);
 
-    private static Comparator<String> nullSafeStringComparator = Comparator
+    private static final Comparator<String> nullSafeStringComparator = Comparator
             .nullsFirst(String::compareToIgnoreCase);
 
     private static SortedSet<FileData> initializeSetForFileData() {
@@ -292,6 +328,12 @@ public class App {
         return new UserInfo(username, email, displayName);
     }
 
+    private static void modifyCommentWithTemplate(FileData data) {
+        String comment = data.getComment();
+        if (comment != null) {
+            data.setComment(MessageFormat.format(USER_MESSAGE_TEMPLATE, comment, data.getModifiedAt()));
+        }
+    }
 
     public static String getNewName(String name) {
         return name.replace(BASE_PATH_FROM, BASE_PATH_TO);
